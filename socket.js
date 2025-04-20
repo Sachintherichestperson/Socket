@@ -9,7 +9,7 @@ const User = require("./mongoose/user-mongo");
 const http = require("http");
 const { Server } = require("socket.io");
 const db = require("./config/mongoose-connection");
-
+const { GoogleGenAI } = require('@google/genai');
 
 const app = express();
 const server = http.createServer(app);
