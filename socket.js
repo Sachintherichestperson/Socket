@@ -24,7 +24,7 @@ const io = new Server(server, {
 
 
 
-
+const rooms = {}; 
 
 io.on("connection", (socket) => {
     socket.on("joinCommunity", async (communityId) => {
