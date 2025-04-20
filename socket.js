@@ -12,4 +12,22 @@ const io = new Server(server, {
     }
 });
 
+io.on("connection", (socket) => {
+    console.log(`✅ User connected: ${socket.id}`);
+
+    // Listen for a custom event (like a chat message)
+    socket.on("message", (data) => {
+        console.log(`📩 Message from ${socket.id}: ${data}`);
+        // Broadcast the message to all clients except sender
+        socket.broadcast.emit("message", data);
+    });
+
+    // Handle disconnection
+    socket.on("disconnect", () => {
+        console.log(`❌ User disconnected: ${socket.id}`);
+    });
+
+    // You can add more custom events here (e.g., "typing", "join-room", etc.)
+});
+
 server.listen(3000, () => { console.log("listening on port 3000") });
