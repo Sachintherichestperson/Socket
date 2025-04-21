@@ -42,134 +42,182 @@ io.on("connection", (socket) => {
 
     socket.on("chatMessage", async (data) => {
         try {
-            // Emit user's message first
+            // 1. Emit user's message
             io.emit("chatMessage", data);
     
-            // Save user message
+            // 2. Save user's message
             const newMessage = new Message({
                 Message: data.message,
                 sender: data.username
             });
             await newMessage.save();
     
-            // Add message to community
+            // 3. Add message to community
             await Community.findByIdAndUpdate(
                 data.communityId,
                 { $push: { Messages: newMessage._id } }
             );
     
+            // 4. AI Setup
             const ai = new GoogleGenAI({ apiKey: "AIzaSyD5uAolO0dkW61LQbGjTjOavsDy78-rejU" });
-
-const supportUsers = ["Ravi", "Ankit", "Priya"];
-const againstUsers = ["Soni", "Alok", "Simran"];
-
-const randomSupportUser = supportUsers[Math.floor(Math.random() * supportUsers.length)];
-const randomAgainstUser = againstUsers[Math.floor(Math.random() * againstUsers.length)];
-
-// 🔥 Include optional last message for context (to maintain flow in replies)
-const contextMessages = await Message.find({ communityId: data.communityId })
-    .sort({ createdAt: -1 })
-    .limit(3); // last 3 messages in thread
-
-const chatContext = contextMessages.reverse().map(msg => ({
-    role: msg.sender === data.sender ? "user" : "model",
-    parts: [{ text: msg.Message }]
-}));
-
-// Add latest user message
-chatContext.push({
-    role: "user",
-    parts: [{ text: data.message }]
-});
-
-// 🎯 PROMPTS
-        const promptSupport = `
-        You're in a group debate. Reply in Romanized Hindi like a real person who:
-        - is supportive and friendly
-        - emotionally positive
-        - supports the speaker if their point is good
-        - adapts based on the message (if it's just "hello", greet back; if it's a solid point, back it up)
-
-        Don't sound like a bot. Keep it warm, casual, and human. Use 1-2 sentences max.
-        `;
-
-        const promptAgainst = `
-        You're in a heated group debate. Someone just made a point. Your task is to respond in a sarcastic and controversial tone. 
-        
-        - Reply in Romanized Hindi like a street-smart debater who’s emotionally reactive and don't translate in english.
-        - Make fun of weak or childish points, mocking them cleverly and with style.
-        - Respond to the message with bold, sharp, and spicy comebacks—quick, impactful, and sometimes controversial.
-        - Adapt to whatever message is given, even if it’s just a simple "hello"—respond in a way that reflects sarcasm and burns.
-        - Keep your tone spicy, bold, and confident. Never sound like a bot, always like you're in a real, heated argument.
-        
-        Respond with short, punchy, and fiery replies that are easily understood but impactful.
-        `;
-        
-
-// 🔥 Generate both supportive and against replies
-const [responseSupport, responseAgainst] = await Promise.all([
-    ai.models.generateContent({
-        model: "gemini-1.5-flash",
-        contents: [
-            { role: "user", parts: [{ text: promptSupport }] },
-            ...chatContext
-        ],
-        generationConfig: {
-            temperature: 1.2,
-            topP: 0.9 // added topP setting here
-        },
-    }),
-    ai.models.generateContent({
-        model: "gemini-1.5-flash",
-        contents: [
-            { role: "user", parts: [{ text: promptAgainst }] },
-            ...chatContext
-        ],
-        generationConfig: {
-            temperature: 1.2,
-            topP: 0.9 // added topP setting here
-        },
-    }),
-]);
-
-// ✅ Extract and sanitize replies
-const aiReplySupport = responseSupport?.text?.replace(/\\"/g, '"').trim();
-const aiReplyAgainst = responseAgainst?.text?.replace(/\\"/g, '"').trim();
-
-// 💾 Save AI responses to DB
-const aiMessageSupport = new Message({
-    Message: aiReplySupport,
-    sender: randomSupportUser,
-});
-await aiMessageSupport.save();
-
-const aiMessageAgainst = new Message({
-    Message: aiReplyAgainst,
-    sender: randomAgainstUser,
-});
-await aiMessageAgainst.save();
-
-// 📢 Push to community
-await Community.findByIdAndUpdate(
-    data.communityId,
-    { $push: { Messages: { $each: [aiMessageAgainst._id, aiMessageSupport._id] } } }
-);
-
     
-            // 🔁 Emit both AI messages to all users
+            const supportUsers = ["Ravi", "Ankit", "Priya"];
+            const againstUsers = ["Soni", "Alok", "Simran"];
+    
+            const randomSupportUser = supportUsers[Math.floor(Math.random() * supportUsers.length)];
+            const randomAgainstUser = againstUsers[Math.floor(Math.random() * againstUsers.length)];
+    
+            // 5. Get last N messages (adjust the number if needed, e.g., 5-10 messages)
+            const contextMessages = await Message.find({ communityId: data.communityId })
+                .sort({ createdAt: -1 })
+                .limit(10); // or adjust the limit here
+    
+            // 6. Prepare chat context from last N messages
+            const chatContext = contextMessages.reverse().map(msg => ({
+                role: msg.sender === data.username ? "user" : "model",
+                parts: [{ text: msg.Message }]
+            }));
+    
+            // Add the current message from the user to the context
+            chatContext.push({
+                role: "user",
+                parts: [{ text: data.message }]
+            });
+    
+            // 7. Define Prompts (support and against)
+            const promptSupport = `
+                You're in a group debate chat behaving like a real person in Roman Hindi
+                Talk casually and supportively like a friend
+                If someone makes a good point say something chill like haan bhai sahi bola ya bilkul agree hu ya mast baat boli tune ya solid point bro
+                If someone just says hello or hi reply warm and casual like hello bhai kya scene ya haan bro kya haal ya kya mast entry maar di tu
+                Always sound like a real person never repeat same phrases again and again add thoda variation
+                Reply in 1 or 2 lines no punctuation no quotes just chat style
+            `;
+    
+            const promptAgainst = `
+                You're in a heated group debate acting like a real savage street-smart debater in Roman Hindi
+                If the message is weak or boring roast it with style like yeh bolke khush hua kya ya bhai tu debate mein ya drama class mein ya aisa slow logic toh traffic bhi overtake kar le
+                If someone just says hello ya hi mock them in funny way like hello se kya karishma karna hai ya sirf hello bolne aaya ya greeting bheja aur point bhool gaya kya
+                Make sure replies are always different and unpredictable never repeat same line again and again
+                Use only 1 or 2 lines talk like real chat no punctuation no quotes just attitude
+            `;
+    
+            // 8. Generate Initial AI Support & Against Replies
+            const [responseSupport, responseAgainst] = await Promise.all([
+                ai.models.generateContent({
+                    model: "gemini-1.5-flash",
+                    contents: [
+                        { role: "user", parts: [{ text: promptSupport }] },
+                        ...chatContext
+                    ],
+                    generationConfig: {
+                        temperature: 1.2,
+                        topP: 0.9
+                    },
+                }),
+                ai.models.generateContent({
+                    model: "gemini-1.5-flash",
+                    contents: [
+                        { role: "user", parts: [{ text: promptAgainst }] },
+                        ...chatContext
+                    ],
+                    generationConfig: {
+                        temperature: 1.2,
+                        topP: 0.9
+                    },
+                }),
+            ]);
+    
+            const aiReplySupport = responseSupport?.text?.replace(/\\"/g, '"').trim();
+            const aiReplyAgainst = responseAgainst?.text?.replace(/\\"/g, '"').trim();
+    
+            const aiMessageSupport = new Message({
+                Message: aiReplySupport,
+                sender: randomSupportUser,
+            });
+            await aiMessageSupport.save();
+    
+            const aiMessageAgainst = new Message({
+                Message: aiReplyAgainst,
+                sender: randomAgainstUser,
+            });
+            await aiMessageAgainst.save();
+    
+            await Community.findByIdAndUpdate(
+                data.communityId,
+                { $push: { Messages: { $each: [aiMessageAgainst._id, aiMessageSupport._id] } } }
+            );
+    
+            // Emit the 2 initial AI messages
             setTimeout(() => {
                 io.emit("chatMessage", {
                     username: randomSupportUser,
                     message: aiReplySupport,
                     communityId: data.communityId
                 });
-            }, 2000)
+            }, 2000);
     
             io.emit("chatMessage", {
                 username: randomAgainstUser,
                 message: aiReplyAgainst,
                 communityId: data.communityId
             });
+    
+            // 9. Recursive AI Debate Loop
+            async function aiDebateLoop(contextMessages, communityId, turn = 0, maxTurns = 15) {
+                if (turn >= maxTurns) return;
+    
+                const isSupportTurn = turn % 2 === 0;
+                const prompt = isSupportTurn ? promptSupport : promptAgainst;
+                const randomUser = isSupportTurn
+                    ? supportUsers[Math.floor(Math.random() * supportUsers.length)]
+                    : againstUsers[Math.floor(Math.random() * againstUsers.length)];
+    
+                const response = await ai.models.generateContent({
+                    model: "gemini-1.5-flash",
+                    contents: [
+                        { role: "user", parts: [{ text: prompt }] },
+                        ...contextMessages
+                    ],
+                    generationConfig: {
+                        temperature: 1.2,
+                        topP: 0.9
+                    },
+                });
+    
+                const aiReply = response?.text?.replace(/\\"/g, '"').trim();
+    
+                const aiMessage = new Message({
+                    Message: aiReply,
+                    sender: randomUser,
+                });
+                await aiMessage.save();
+    
+                await Community.findByIdAndUpdate(
+                    communityId,
+                    { $push: { Messages: aiMessage._id } }
+                );
+    
+                io.emit("chatMessage", {
+                    username: randomUser,
+                    message: aiReply,
+                    communityId: communityId
+                });
+    
+                contextMessages.push({
+                    role: isSupportTurn ? "user" : "model",
+                    parts: [{ text: aiReply }]
+                });
+    
+                setTimeout(() => {
+                    aiDebateLoop(contextMessages, communityId, turn + 1, maxTurns);
+                }, 3000);
+            }
+    
+            // Start the AI Debate Loop after a short delay
+            setTimeout(() => {
+                aiDebateLoop([...chatContext], data.communityId);
+            }, 4000);
     
         } catch (error) {
             console.error("Error sending message:", error);
