@@ -21,6 +21,12 @@ const io = new Server(server, {
     }
 });
 
+const cors = require('cors');
+
+app.use(cors({
+  origin: "https://clartalk.online",
+}));
+
 
 
 
