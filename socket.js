@@ -69,9 +69,11 @@ io.on("connection", (socket) => {
     
             const supportUsers = ["Ravi", "Ankit", "Priya"];
             const againstUsers = ["Soni", "Alok", "Simran"];
+            const NeutralUsers = ["Shyam", "Kavi", "Adi"];
     
             const randomSupportUser = supportUsers[Math.floor(Math.random() * supportUsers.length)];
             const randomAgainstUser = againstUsers[Math.floor(Math.random() * againstUsers.length)];
+            const randomNeutralUser = NeutralUsers[Math.floor(Math.random() * NeutralUsers.length)];
     
             // 5. Get last N messages (adjust the number if needed, e.g., 5-10 messages)
             const contextMessages = await Message.find({ communityId: data.communityId })
@@ -100,16 +102,28 @@ io.on("connection", (socket) => {
                 Reply in 1 or 2 lines no punctuation no quotes just chat style
             `;
     
-            const promptAgainst = `
-                You're in a heated group debate acting like a real savage street-smart debater in Roman Hindi
-                If the message is weak or boring roast it with style like yeh bolke khush hua kya ya bhai tu debate mein ya drama class mein ya aisa slow logic toh traffic bhi overtake kar le
-                If someone just says hello ya hi mock them in funny way like hello se kya karishma karna hai ya sirf hello bolne aaya ya greeting bheja aur point bhool gaya kya
-                Make sure replies are always different and unpredictable never repeat same line again and again
-                Use only 1 or 2 lines talk like real chat no punctuation no quotes just attitude
-            `;
     
+            const promptNeutral = `
+                You're Simran, a calm, intelligent debater in Roman Hindi who participates in group chats on serious topics
+                You always give short, clear, and logical replies in 1–2 lines like real chat
+                You never roast or insult, but respectfully challenge weak arguments using facts or thought-provoking logic
+                Your tone is confident but not aggressive
+                Avoid repeating yourself or sounding robotic — sound natural and smart, like a person who thinks before speaking
+                Write replies in Roman Hindi (no English sentences), and skip punctuation
+            `;
+
+            const promptAgainst = `
+                You're a calm but sharp debater who always opposes the current statement in Roman Hindi
+                You give short replies (1–2 lines) with strong reasoning or logic that challenges the idea clearly
+                No roasting or insults — stay composed and sound mature
+                You always question the base of the argument or bring a counterpoint that shifts the thinking
+                Use conversational Roman Hindi without punctuation
+                Never repeat yourself and make sure every response sounds natural like a real group chat
+            `;
+
+
             // 8. Generate Initial AI Support & Against Replies
-            const [responseSupport, responseAgainst] = await Promise.all([
+            const [responseSupport, responseNeutral, responseAgainst] = await Promise.all([
                 ai.models.generateContent({
                     model: "gemini-1.5-flash",
                     contents: [
@@ -124,7 +138,7 @@ io.on("connection", (socket) => {
                 ai.models.generateContent({
                     model: "gemini-1.5-flash",
                     contents: [
-                        { role: "user", parts: [{ text: promptAgainst }] },
+                        { role: "user", parts: [{ text:promptNeutral }] },
                         ...chatContext
                     ],
                     generationConfig: {
@@ -132,16 +146,34 @@ io.on("connection", (socket) => {
                         topP: 0.9
                     },
                 }),
+                ai.models.generateContent({
+                    model: "gemini-1.5-flash",
+                    contents: [
+                        { role: "user", parts: [{ text:promptAgainst }] },
+                        ...chatContext
+                    ],
+                    generationConfig: {
+                        temperature: 1.2,
+                        topP: 0.9
+                    },
+                })
             ]);
     
             const aiReplySupport = responseSupport?.text?.replace(/\\"/g, '"').trim();
             const aiReplyAgainst = responseAgainst?.text?.replace(/\\"/g, '"').trim();
+            const aiReplyNeutral = responseNeutral?.text?.replace(/\\"/g, '"').trim();
     
             const aiMessageSupport = new Message({
                 Message: aiReplySupport,
                 sender: randomSupportUser,
             });
             await aiMessageSupport.save();
+
+            const aiMessageNeutral = new Message({
+                Message: aiReplyNeutral,
+                sender: randomAgainstUser,
+            });
+            await aiMessageNeutral.save();
     
             const aiMessageAgainst = new Message({
                 Message: aiReplyAgainst,
@@ -151,79 +183,37 @@ io.on("connection", (socket) => {
     
             await Community.findByIdAndUpdate(
                 data.communityId,
-                { $push: { Messages: { $each: [aiMessageAgainst._id, aiMessageSupport._id] } } }
+                { $push: { Messages: { $each: [aiMessageAgainst._id, aiMessageSupport._id, aiMessageNeutral._id] } } }
             );
     
-            // Emit the 2 initial AI messages
+            const randomDelay = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
+
+            
             setTimeout(() => {
                 io.emit("chatMessage", {
                     username: randomSupportUser,
                     message: aiReplySupport,
                     communityId: data.communityId
                 });
-            }, 2000);
-    
-            io.emit("chatMessage", {
-                username: randomAgainstUser,
-                message: aiReplyAgainst,
-                communityId: data.communityId
-            });
-    
-            // 9. Recursive AI Debate Loop
-            async function aiDebateLoop(contextMessages, communityId, turn = 0, maxTurns = 15) {
-                if (turn >= maxTurns) return;
-    
-                const isSupportTurn = turn % 2 === 0;
-                const prompt = isSupportTurn ? promptSupport : promptAgainst;
-                const randomUser = isSupportTurn
-                    ? supportUsers[Math.floor(Math.random() * supportUsers.length)]
-                    : againstUsers[Math.floor(Math.random() * againstUsers.length)];
-    
-                const response = await ai.models.generateContent({
-                    model: "gemini-1.5-flash",
-                    contents: [
-                        { role: "user", parts: [{ text: prompt }] },
-                        ...contextMessages
-                    ],
-                    generationConfig: {
-                        temperature: 1.2,
-                        topP: 0.9
-                    },
-                });
-    
-                const aiReply = response?.text?.replace(/\\"/g, '"').trim();
-    
-                const aiMessage = new Message({
-                    Message: aiReply,
-                    sender: randomUser,
-                });
-                await aiMessage.save();
-    
-                await Community.findByIdAndUpdate(
-                    communityId,
-                    { $push: { Messages: aiMessage._id } }
-                );
-    
-                io.emit("chatMessage", {
-                    username: randomUser,
-                    message: aiReply,
-                    communityId: communityId
-                });
-    
-                contextMessages.push({
-                    role: isSupportTurn ? "user" : "model",
-                    parts: [{ text: aiReply }]
-                });
-    
-                setTimeout(() => {
-                    aiDebateLoop(contextMessages, communityId, turn + 1, maxTurns);
-                }, 3000);
-            }
-    
-            // Start the AI Debate Loop after a short delay
+            }, randomDelay(3000, 6000)); // 3-6 seconds delay
+            
             setTimeout(() => {
-                aiDebateLoop([...chatContext], data.communityId);
-            }, 4000);
+                io.emit("chatMessage", {
+                    username: randomAgainstUser,
+                    message: aiReplyAgainst,
+                    communityId: data.communityId
+                });
+            }, randomDelay(4000, 7000));
+            
+            setTimeout(() => {
+                io.emit("chatMessage", {
+                    username: randomNeutralUser,
+                    message: aiReplyNeutral,
+                    communityId: data.communityId
+                });
+            }, randomDelay(5000, 8000));
+            
+    
     
         } catch (error) {
             console.error("Error sending message:", error);
